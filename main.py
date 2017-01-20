@@ -15,7 +15,7 @@ if len(sys.argv) > 2:
         os.environ['KERAS_BACKEND'] = 'tensorflow'
 
 from keras.models import Sequential
-from keras.layers import Dense, Activation, SimpleRNN, LSTM, GRU, Reshape, TimeDistributed, Flatten
+from keras.layers import Dense, Activation, SimpleRNN, LSTM, GRU, Reshape, TimeDistributed, Flatten, Dropout, BatchNormalization
 from keras.layers import Embedding
 from keras.engine import Input
 from keras.optimizers import Adam, RMSprop
@@ -36,21 +36,25 @@ else:
     import _pickle as cPickle
 
 const_is_debug = False
-const_is_prepare_corpus = False
-const_corpus = '../dataset/Corpus Of Latvian Literature.xml'
+const_is_load_model = False
 
-const_word2vec_dimensions = 5
-const_sentence_length = 20
+const_use_all_corpus = True
+const_is_prepare_corpus = True
+const_corpus = './dataset/Corpus Of Latvian Literature.xml'
 
-const_word2vec_epochs = 500
+const_word2vec_dimensions = 100
+const_sentence_length = 10
+
+const_word2vec_epochs = 1000
 
 const_epoch_inner = 10
-const_epochs = 500
+const_epochs = 100
 const_generated_samples = 10
-cons_batch_size = 128
+const_batch_size = 512
+const_nn_hidden_units = 500
 
-const_l1_regularization = 1e-6
-const_learning_rate = 1e-5
+const_l1_regularization = 1e-2
+const_learning_rate = 1e-7
 
 if const_is_debug:
     const_word2vec_epochs = 10
@@ -69,7 +73,7 @@ if len(sys.argv) > 1:
 token_empty = u'EMPTY'
 token_new_line = u'NEW_LINE'
 
-version = 'v7-' + const_nn_type
+version = 'v11-' + const_nn_type
 init_log('./logs/rnn-{0}-{1}.log'.format(version, datetime.now().strftime("%Y-%m-%d-%H-%M-%S")))
 file_csv_loss = open('./results/loss-{}-{}.csv'.format(version, datetime.now().strftime("%Y-%m-%d-%H-%M-%S")), 'a')
 file_sentences = io.open('./results/file_sentences_{}.txt'.format(version), 'a', encoding='utf-8')
@@ -112,7 +116,9 @@ def prepare_word2vec_model():
 
                     if is_poem:
                         poems.append([token_empty])
-                    all_corpus.append([token_empty])
+
+                    if const_use_all_corpus or is_poem:
+                        all_corpus.append([token_empty])
 
                     for line in lines:
                         strip_line = line.strip()
@@ -120,7 +126,9 @@ def prepare_word2vec_model():
                             processed_line = simple_preprocess(strip_line)
                             processed_line.append(token_new_line)
 
-                            all_corpus[-1] += processed_line
+                            if const_use_all_corpus or is_poem:
+                                all_corpus[-1] += processed_line
+
                             if is_poem and len(lines) > 0:
                                 poems[-1] += processed_line
                             is_line_added = True
@@ -145,6 +153,8 @@ def prepare_word2vec_model():
     idx2word = dict([(v, k) for k, v in word2idx.items()])
 
     logging.info('Word2Vec built')
+
+    logging.info('word count: {}'.format(len(word2vec_model.vocab.items())))
 
     cPickle.dump(word2idx, open('word2vec_vocab.bin', 'wb'))
 
@@ -175,36 +185,37 @@ logging.info('model build started')
 
 model = Sequential()
 
-if(os.path.exists('model-{}.h5'.format(version))):
+if const_is_load_model and os.path.exists('model-{}.h5'.format(version)):
     model = keras.models.load_model('model-{}.h5'.format(version))
     logging.info('model loaded')
 else:
     if const_nn_type == 'lstm':
-        model.add(LSTM(output_dim=100, input_dim=const_word2vec_dimensions, input_length=const_sentence_length,
+        model.add(LSTM(output_dim=const_nn_hidden_units, input_dim=const_word2vec_dimensions, input_length=const_sentence_length,
                             return_sequences=True, W_regularizer=l1l2(const_l1_regularization),
                             U_regularizer=l1l2(const_l1_regularization)))
-        model.add(LSTM(output_dim=100, W_regularizer=l1l2(const_l1_regularization),
+        model.add(LSTM(output_dim=const_nn_hidden_units, W_regularizer=l1l2(const_l1_regularization),
                             U_regularizer=l1l2(const_l1_regularization)))
     elif const_nn_type == 'gru':
-        model.add(GRU(output_dim=100, input_dim=const_word2vec_dimensions, input_length=const_sentence_length,
+        model.add(GRU(output_dim=const_nn_hidden_units, input_dim=const_word2vec_dimensions, input_length=const_sentence_length,
                             return_sequences=True, W_regularizer=l1l2(const_l1_regularization),
                             U_regularizer=l1l2(const_l1_regularization)))
-        model.add(GRU(output_dim=100, W_regularizer=l1l2(const_l1_regularization),
+        model.add(GRU(output_dim=const_nn_hidden_units, W_regularizer=l1l2(const_l1_regularization),
                             U_regularizer=l1l2(const_l1_regularization)))
     elif const_nn_type == 'relu':
-        model.add(SimpleRNN(output_dim=100, input_dim=const_word2vec_dimensions, input_length=const_sentence_length, activation='relu',
+        model.add(SimpleRNN(output_dim=const_nn_hidden_units, input_dim=const_word2vec_dimensions, input_length=const_sentence_length, activation='relu',
                             return_sequences=True, W_regularizer=l1l2(const_l1_regularization),
                             U_regularizer=l1l2(const_l1_regularization)))
-        model.add(SimpleRNN(output_dim=100, W_regularizer=l1l2(const_l1_regularization), activation='relu',
+        model.add(SimpleRNN(output_dim=const_nn_hidden_units, W_regularizer=l1l2(const_l1_regularization), activation='relu',
                             U_regularizer=l1l2(const_l1_regularization)))
     else:
-        model.add(SimpleRNN(output_dim=100, input_dim=const_word2vec_dimensions, input_length=const_sentence_length,
+        model.add(SimpleRNN(output_dim=const_nn_hidden_units, input_dim=const_word2vec_dimensions, input_length=const_sentence_length,
                             return_sequences=True, W_regularizer=l1l2(const_l1_regularization),
                             U_regularizer=l1l2(const_l1_regularization)))
-        model.add(SimpleRNN(output_dim=100, W_regularizer=l1l2(const_l1_regularization),
+        model.add(SimpleRNN(output_dim=const_nn_hidden_units, W_regularizer=l1l2(const_l1_regularization),
                             U_regularizer=l1l2(const_l1_regularization)))
 
     # model.add(Flatten())
+    model.add(Dropout(p=0.3))
     model.add(Dense(output_dim=const_word2vec_dimensions, W_regularizer=l1l2(const_l1_regularization),
                     activity_regularizer=activity_l1l2(const_l1_regularization)))
 
@@ -245,7 +256,7 @@ logging.info('training samples finished')
 
 i_total_epoch = 0
 for i_epoch in range(const_epochs):
-    history = model.fit(X, Y, batch_size=cons_batch_size, nb_epoch=const_epoch_inner)
+    history = model.fit(X, Y, batch_size=const_batch_size, nb_epoch=const_epoch_inner)
 
     for loss in history.history['loss']:
         i_total_epoch += 1

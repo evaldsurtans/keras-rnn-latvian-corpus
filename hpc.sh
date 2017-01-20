@@ -5,7 +5,7 @@
 #PBS -l nodes=1:ppn=8,feature=centos7,walltime=96:00:00
 #PBS -j oe
 ##PBS -t 1-10 nodes=wn57:ppn=8:gpus=1,feature=centos7,walltime=96:00:00
-## -F "relu tf"
+## -F "relu tf" -l nodes=wn56:ppn=8:gpus=1,feature=centos7,walltime=96:00:00
 
 
 module load cuda/cuda-7.5
